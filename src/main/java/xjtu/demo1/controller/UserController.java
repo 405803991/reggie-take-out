@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,6 +19,7 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequestMapping("/user")
@@ -26,6 +28,9 @@ public class UserController {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private RedisTemplate redisTemplate;
 
     @PostMapping("/sendMsg")
     public R<String> sendMsg(@RequestBody User user, HttpSession session) {
@@ -39,7 +44,9 @@ public class UserController {
 
             SMSUtils.sendMessage("123", "", phone, code);
 
-            session.setAttribute(phone, code);
+            // session.setAttribute(phone, code);
+            // 用 redis 缓存验证码
+            redisTemplate.opsForValue().set(phone, code, 5, TimeUnit.MINUTES);
 
             return R.success("success");
         }
@@ -53,7 +60,9 @@ public class UserController {
 
         String code = map.get("code").toString();
 
-        Object codeInSession = session.getAttribute(phone);
+        // Object codeInSession = session.getAttribute(phone);
+
+        Object codeInSession = redisTemplate.opsForValue().get(phone);
 
         if (/*codeInSession != null && codeInSession.equals(code)*/ true ) {
             LambdaQueryWrapper<User> objectLambdaQueryWrapper = new LambdaQueryWrapper<>();
@@ -66,6 +75,8 @@ public class UserController {
                 userService.save(user);
             }
             session.setAttribute("user",user.getId());
+            // 登陆成功可以删除redis缓存的验证码
+            redisTemplate.delete(phone);
             return R.success(user);
         }
 
